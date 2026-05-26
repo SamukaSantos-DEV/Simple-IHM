@@ -178,7 +178,7 @@ export default function DashboardView(props: DashboardViewProps) {
         <Grainient
           color1={darkMode ? "#350046" : "#dbc8ff"}
           color2={darkMode ? "#00222d" : "#cbfcff"}
-          color3={darkMode ? "#000000" : "#ffffff"}
+          color3={darkMode ? "#111111" : "#eeeeee"}
           timeSpeed={0.15}
           colorBalance={0}
           warpStrength={1}

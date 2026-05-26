@@ -57,7 +57,7 @@ export default function ConnectionStatus({ isConnected, isServerSignal }: Connec
         }`}
       >
         <div
-          className={`mx-auto flex w-[90%] max-w-2xl justify-center items-center rounded-2xl bg-linear-to-r from-gray-800 to-gray-950 text-white shadow-2xl transition-all duration-500 ease-out ${
+          className={`mx-auto flex w-[90%] max-w-2xl justify-center items-center rounded-2xl bg-linear-to-r from-gray-800 to-gray-950 text-white shadow-lg transition-all duration-500 ease-out ${
             hasServerSignalAlert ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-8 pointer-events-none'
           }`}
         >
