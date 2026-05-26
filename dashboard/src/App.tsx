@@ -1,29 +1,158 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { io } from 'socket.io-client';
-import VibrationChart from './components/VibrationChart';
-import HistoryChart from './components/HistoryChart';
-import UptimeDailyChart from './components/UptimeDailyChart';
-import LiveMetricChart from './components/LiveMetricChart';
-import logo from './assets/hero.png';
-import { Power, Clock, Zap, Sun, Moon, Settings, Calendar, Filter, ArrowUpRight, ArrowDownRight, Activity as ActivityIcon } from 'lucide-react';
-import Grainient from './components/Grainient';
+import DashboardView from './components/DashboardView';
+import ConnectionStatus from './components/ConnectionStatus';
+import LoginPage from './components/admin/LoginPage';
+import AdminLayout from './components/admin/AdminLayout';
+import MachinesPage from './components/MachinesPage';
+import MaintenancePage from './components/admin/MaintenancePage';
 
 const socket = io('http://localhost:3001');
-const BRAND_GRADIENT = 'linear-gradient(135deg, #812FFF 0%, #5CE1E6 100%)';
+
+interface MachineTelemetry {
+  uptimeSeconds: number;
+  downtimeSeconds: number;
+  status: boolean; // true = active (ON), false = inactive (OFF)
+  power: number;
+  voltage: number;
+  current: number;
+  vibrationHz: number;
+  vibrationStructural: number;
+  vibrationData: number[];
+  liveValueData: number[];
+  historyData: { time: string, status: number }[];
+  stopsCount: number;
+}
 
 export default function App() {
   const [darkMode, setDarkMode] = useState(() => {
     const saved = localStorage.getItem('theme');
     return saved ? saved === 'dark' : true;
   });
-  const [status, setStatus] = useState(true);
+  
+  const [status, setStatusState] = useState(true);
+  const [isSocketConnected, setIsSocketConnected] = useState(true);
+  const [isInternetConnected, setIsInternetConnected] = useState(() => {
+    return typeof navigator !== 'undefined' ? navigator.onLine : true;
+  });
+  const [isServerSignal, setIsServerSignal] = useState(true);
+  const [lastDataTimestamp, setLastDataTimestamp] = useState<number>(Date.now);
+  const SERVER_SIGNAL_TIMEOUT = 10000;
+  
+  // Telemetria detalhada por máquina
+  const [telemetryMap, setTelemetryMap] = useState<Record<string | number, MachineTelemetry>>({});
+  
+  // Estados de exibição da máquina selecionada
   const [vibrationData, setVibrationData] = useState<number[]>(new Array(20).fill(0));
-  const [liveValueData, setLiveValueData] = useState<number[]>(new Array(30).fill(40));
+  const [liveValueData, setLiveValueData] = useState<number[]>(new Array(30).fill(0));
   const [historyData, setHistoryData] = useState<{ time: string, status: number }[]>([]);
-  const [uptime, setUptime] = useState('00:42:15');
-  const [dateFilter, setDateFilter] = useState(new Date().toISOString().split('T')[0]);
+  const [uptime, setUptime] = useState('00:00:00');
+  const [downtime, setDowntime] = useState('00:00:00');
+  const [power, setPower] = useState(0);
+  const [voltage, setVoltage] = useState(0);
+  const [current, setCurrent] = useState(0);
+  const [vibrationHz, setVibrationHz] = useState(0);
+  const [vibrationStructural, setVibrationStructural] = useState(0);
 
-  // Mock data for daily comparison
+  const [availableMachines, setAvailableMachines] = useState<{id: number | string, name: string}[]>([]);
+  const [selectedMachineId, setSelectedMachineIdState] = useState<number | string | null>(null);
+  const selectedMachineIdRef = useRef<number | string | null>(null);
+
+  // Manutenções preventivas
+  const [maintenanceTasks, setMaintenanceTasks] = useState<any[]>([]);
+
+  // Rankings e Turnos
+  const [productiveRanking, setProductiveRanking] = useState<{ name: string; efficiency: number }[]>([]);
+  const [stopsRanking, setStopsRanking] = useState<{ name: string; stops: number }[]>([]);
+  const [shiftProductivity, setShiftProductivity] = useState<{ shift: string; productivity: number }[]>([]);
+
+  const setSelectedMachineId = (id: number | string) => {
+    setSelectedMachineIdState(id);
+    selectedMachineIdRef.current = id;
+    
+    // Atualiza os estados instantaneamente com os dados da máquina no map
+    if (telemetryMap[id]) {
+      const tel = telemetryMap[id];
+      setStatusState(tel.status);
+      setUptime(formatTime(tel.uptimeSeconds));
+      setDowntime(formatTime(tel.downtimeSeconds));
+      setPower(tel.power);
+      setVoltage(tel.voltage);
+      setCurrent(tel.current);
+      setVibrationHz(tel.vibrationHz);
+      setVibrationStructural(tel.vibrationStructural);
+      setVibrationData(tel.vibrationData);
+      setLiveValueData(tel.liveValueData);
+      setHistoryData(tel.historyData);
+    }
+  };
+
+  const setStatus = (newStatus: boolean) => {
+    setStatusState(newStatus);
+    const currentId = selectedMachineIdRef.current;
+    if (currentId !== null && telemetryMap[currentId]) {
+      setTelemetryMap(prev => {
+        const item = prev[currentId];
+        const stopsDiff = (!newStatus && item.status) ? 1 : 0; // se desligou, incrementa parada
+        return {
+          ...prev,
+          [currentId]: {
+            ...item,
+            status: newStatus,
+            stopsCount: item.stopsCount + stopsDiff,
+            current: newStatus ? (item.current > 0.5 ? item.current : 2.5) : 0.1,
+            power: newStatus ? (item.power > 50 ? item.power : 550) : 22,
+            vibrationHz: newStatus ? 60 : 0,
+            vibrationStructural: newStatus ? 1.2 : 0.05,
+          }
+        };
+      });
+    }
+  };
+
+  const formatTime = (totalSeconds: number): string => {
+    const hrs = Math.floor(totalSeconds / 3600);
+    const mins = Math.floor((totalSeconds % 3600) / 60);
+    const secs = totalSeconds % 60;
+    return [
+      hrs.toString().padStart(2, '0'),
+      mins.toString().padStart(2, '0'),
+      secs.toString().padStart(2, '0')
+    ].join(':');
+  };
+
+  const initTelemetryForMachine = (id: number | string): MachineTelemetry => {
+    const isAtiva = Math.random() > 0.2; // 80% chance de iniciar ligada
+    const uptimeSecs = Math.floor(15000 + Math.random() * 30000);
+    const downtimeSecs = Math.floor(2000 + Math.random() * 8000);
+    const stops = Math.floor(Math.random() * 6) + 1;
+
+    const now = Date.now();
+    const hist = Array.from({ length: 20 }).map((_, idx) => {
+      const timeStr = new Date(now - (20 - idx) * 30000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      return {
+        time: timeStr,
+        status: Math.random() > 0.15 ? 1 : 0
+      };
+    });
+
+    return {
+      uptimeSeconds: uptimeSecs,
+      downtimeSeconds: downtimeSecs,
+      status: isAtiva,
+      power: isAtiva ? 450 + Math.random() * 150 : 22,
+      voltage: 220,
+      current: isAtiva ? 2.0 + Math.random() * 1.0 : 0.1,
+      vibrationHz: isAtiva ? 58 + Math.random() * 4 : 0,
+      vibrationStructural: isAtiva ? 0.8 + Math.random() * 0.8 : 0.05,
+      vibrationData: new Array(20).fill(0).map(() => isAtiva ? 0.8 + Math.random() * 0.8 : 0.05),
+      liveValueData: new Array(30).fill(0).map(() => isAtiva ? 58 + Math.random() * 4 : 0),
+      historyData: hist,
+      stopsCount: stops
+    };
+  };
+
   const dailyUptimeData = [
     { day: 'Seg', onHours: 18, offHours: 6 },
     { day: 'Ter', onHours: 22, offHours: 2 },
@@ -46,197 +175,384 @@ export default function App() {
     }
   }, [darkMode]);
 
+  // Detecta queda/retorno de internet
   useEffect(() => {
+    const handleOnline = () => setIsInternetConnected(true);
+    const handleOffline = () => setIsInternetConnected(false);
 
-    // Update favicon/tab icon
-    const favicon = document.querySelector('link[rel="icon"]') as HTMLLinkElement;
-    if (favicon) {
-      favicon.href = '/favicon.png';
-    }
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
 
-    const mockInterval = setInterval(() => {
-      const mockVib = 0.4 + (Math.random() * 0.3);
-      const mockLive = 40 + (Math.sin(Date.now() / 2000) * 10) + (Math.random() * 5);
-      setVibrationData(prev => [...prev.slice(-19), mockVib]);
-      setLiveValueData(prev => [...prev.slice(-29), mockLive]);
-      const now = new Date().toLocaleTimeString();
-      setHistoryData(prev => {
-        if (prev.length === 0) return [{ time: now, status: 1 }];
-        return prev;
+    const checkInternet = async () => {
+      const controller = new AbortController();
+      const timeoutId = window.setTimeout(() => controller.abort(), 5000);
+      try {
+        await fetch('https://www.gstatic.com/generate_204', {
+          method: 'GET',
+          mode: 'no-cors',
+          cache: 'no-store',
+          signal: controller.signal,
+        });
+        setIsInternetConnected(true);
+      } catch {
+        setIsInternetConnected(false);
+      } finally {
+        window.clearTimeout(timeoutId);
+      }
+    };
+
+    checkInternet();
+    const intervalId = window.setInterval(checkInternet, 5000);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+      window.clearInterval(intervalId);
+    };
+  }, []);
+
+  // Timer para verificar se recebeu dados do servidor
+  useEffect(() => {
+    const checkServerSignal = setInterval(() => {
+      const timeSinceLastData = Date.now() - lastDataTimestamp;
+      if (timeSinceLastData > SERVER_SIGNAL_TIMEOUT && isServerSignal) {
+        setIsServerSignal(false);
+      } else if (timeSinceLastData <= SERVER_SIGNAL_TIMEOUT && !isServerSignal) {
+        setIsServerSignal(true);
+      }
+    }, 1000);
+
+    return () => clearInterval(checkServerSignal);
+  }, [lastDataTimestamp, isServerSignal]);
+
+  // Loop de Simulação de Telemetria (Move os dados a cada segundo)
+  useEffect(() => {
+    const simulationInterval = setInterval(() => {
+      setTelemetryMap(prevMap => {
+        const nextMap = { ...prevMap };
+        let mapChanged = false;
+
+        availableMachines.forEach(machine => {
+          const id = machine.id;
+          if (!nextMap[id]) {
+            nextMap[id] = initTelemetryForMachine(id);
+            mapChanged = true;
+          }
+
+          const currentTel = nextMap[id];
+          const isSelected = selectedMachineIdRef.current !== null && selectedMachineIdRef.current.toString() === id.toString();
+          
+          // Se for a máquina selecionada E temos sinal real de socket/ESP, deixa a lógica do socket agir
+          // Caso contrário, simulamos os dados se movimentando
+          let updatedTel = { ...currentTel };
+          
+          if (currentTel.status) {
+            // Incrementa produção
+            updatedTel.uptimeSeconds += 1;
+            // Flutua valores
+            updatedTel.voltage = 217 + Math.random() * 6; // 217 a 223 V
+            updatedTel.current = Math.max(0.5, currentTel.current + (Math.random() - 0.5) * 0.2);
+            updatedTel.power = updatedTel.voltage * updatedTel.current;
+            updatedTel.vibrationHz = Math.max(1, 55 + Math.random() * 10);
+            updatedTel.vibrationStructural = Math.max(0.1, currentTel.vibrationStructural + (Math.random() - 0.5) * 0.15);
+          } else {
+            // Incrementa parado
+            updatedTel.downtimeSeconds += 1;
+            updatedTel.voltage = Math.random() > 0.95 ? 0 : 220; // Standby
+            updatedTel.current = 0.1;
+            updatedTel.power = updatedTel.voltage * updatedTel.current;
+            updatedTel.vibrationHz = 0;
+            updatedTel.vibrationStructural = 0.05 + Math.random() * 0.02;
+          }
+
+          // Atualiza vetores de gráfico
+          updatedTel.vibrationData = [...currentTel.vibrationData.slice(-19), updatedTel.vibrationStructural];
+          updatedTel.liveValueData = [...currentTel.liveValueData.slice(-29), updatedTel.vibrationHz];
+
+          // Adiciona histórico a cada 5 segundos
+          if (updatedTel.uptimeSeconds % 5 === 0) {
+            const timeNow = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+            updatedTel.historyData = [...currentTel.historyData.slice(-19), { time: timeNow, status: updatedTel.status ? 1 : 0 }];
+          }
+
+          nextMap[id] = updatedTel;
+          mapChanged = true;
+
+          // Se for a selecionada, reflete nos estados individuais imediatamente para renderizar
+          if (isSelected) {
+            setStatusState(updatedTel.status);
+            setUptime(formatTime(updatedTel.uptimeSeconds));
+            setDowntime(formatTime(updatedTel.downtimeSeconds));
+            setPower(updatedTel.power);
+            setVoltage(updatedTel.voltage);
+            setCurrent(updatedTel.current);
+            setVibrationHz(updatedTel.vibrationHz);
+            setVibrationStructural(updatedTel.vibrationStructural);
+            setVibrationData(updatedTel.vibrationData);
+            setLiveValueData(updatedTel.liveValueData);
+            setHistoryData(updatedTel.historyData);
+          }
+        });
+
+        // Atualizar rankings e turnos
+        if (mapChanged || Object.keys(prevMap).length === 0) {
+          const list = Object.entries(nextMap).map(([idKey, tel]) => {
+            const mach = availableMachines.find(m => m.id.toString() === idKey.toString());
+            const name = mach ? mach.name : `Máquina ${idKey}`;
+            const total = tel.uptimeSeconds + tel.downtimeSeconds || 1;
+            const efficiency = (tel.uptimeSeconds / total) * 100;
+            return {
+              id: idKey,
+              name,
+              efficiency: parseFloat(efficiency.toFixed(1)),
+              stops: tel.stopsCount
+            };
+          });
+
+          // Ranking Mais Produtivas (maior eficiência)
+          const sortedProd = [...list].sort((a, b) => b.efficiency - a.efficiency);
+          setProductiveRanking(sortedProd.map(x => ({ name: x.name, efficiency: x.efficiency })));
+
+          // Ranking Mais Paradas (mais paradas)
+          const sortedStops = [...list].sort((a, b) => b.stops - a.stops);
+          setStopsRanking(sortedStops.map(x => ({ name: x.name, stops: x.stops })));
+
+          // Produtividade por Turno da máquina selecionada
+          const activeId = selectedMachineIdRef.current;
+          if (activeId !== null && nextMap[activeId]) {
+            const activeTel = nextMap[activeId];
+            // Divide o uptime em 3 turnos simulados
+            const totalUp = activeTel.uptimeSeconds || 3600;
+            setShiftProductivity([
+              { shift: 'Turno 1 (06:00 - 14:00)', productivity: Math.round(totalUp * 0.45) },
+              { shift: 'Turno 2 (14:00 - 22:00)', productivity: Math.round(totalUp * 0.35) },
+              { shift: 'Turno 3 (22:00 - 06:00)', productivity: Math.round(totalUp * 0.20) }
+            ]);
+          }
+        }
+
+        return nextMap;
       });
     }, 1000);
 
+    return () => clearInterval(simulationInterval);
+  }, [availableMachines]);
+
+  // Carregar máquinas e manutenções preventivas do servidor e ngrok
+  useEffect(() => {
+    const fetchAllData = async () => {
+      // 1. Carregar máquinas
+      try {
+        const localResponse = await fetch('http://localhost:3001/api/machines');
+        if (localResponse.ok) {
+          const machinesLocal = await localResponse.json();
+          if (machinesLocal && machinesLocal.length > 0) {
+            setAvailableMachines(machinesLocal.map((m: any) => ({
+              id: m.id,
+              name: m.name
+            })));
+            
+            localStorage.setItem('local_machines', JSON.stringify(machinesLocal));
+
+            if (selectedMachineIdRef.current === null) {
+              setSelectedMachineIdState(machinesLocal[0].id);
+              selectedMachineIdRef.current = machinesLocal[0].id;
+            }
+          }
+        }
+      } catch (e) {
+        console.warn("Backend local offline para carregar máquinas. Carregando dados locais...");
+        const stored = localStorage.getItem('local_machines');
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          setAvailableMachines(parsed);
+          if (selectedMachineIdRef.current === null && parsed.length > 0) {
+            setSelectedMachineIdState(parsed[0].id);
+            selectedMachineIdRef.current = parsed[0].id;
+          }
+        } else {
+          // Mock padrão
+          const defaultMachines = [{ id: '1', name: 'Máquina de Corte 01' }];
+          setAvailableMachines(defaultMachines);
+          setSelectedMachineIdState('1');
+          selectedMachineIdRef.current = '1';
+        }
+      }
+
+      // Tenta puxar do ngrok também se disponível e junta os dados
+      try {
+        const ngrokResponse = await fetch('https://caucasian-septum-syndrome.ngrok-free.dev/status-maquinas', {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+            'ngrok-skip-browser-warning': 'true' 
+          }
+        });
+        if (ngrokResponse.ok) {
+          const ngrokData = await ngrokResponse.json();
+          if (ngrokData && ngrokData.length > 0) {
+            setAvailableMachines(prev => {
+              const newList = [...prev];
+              ngrokData.forEach((m: any) => {
+                const id = m.maquina_id;
+                if (!newList.some(x => x.id.toString() === id.toString())) {
+                  newList.push({ id, name: `Máquina ${id}` });
+                }
+              });
+              return newList;
+            });
+          }
+        }
+      } catch (e) {
+        console.warn("ngrok offline ou indisponível.");
+      }
+
+      // 2. Carregar manutenções preventivas
+      try {
+        const maintenanceResponse = await fetch('http://localhost:3001/api/maintenance');
+        if (maintenanceResponse.ok) {
+          const maintenanceData = await maintenanceResponse.json();
+          setMaintenanceTasks(maintenanceData);
+          localStorage.setItem('local_maintenance', JSON.stringify(maintenanceData));
+        }
+      } catch (e) {
+        console.warn("Backend local offline para carregar manutenções. Carregando do localStorage...");
+        const storedMaint = localStorage.getItem('local_maintenance');
+        if (storedMaint) {
+          setMaintenanceTasks(JSON.parse(storedMaint));
+        } else {
+          // Mock inicial de manutenções
+          const defaultMaint = [
+            {
+              id: '1',
+              machineId: '1',
+              taskName: 'Troca de Óleo Lubrificante',
+              description: 'Trocar o óleo lubrificante hidráulico da base',
+              scheduledDate: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+              status: 'pending',
+              technician: 'Carlos Eduardo',
+            },
+            {
+              id: '2',
+              machineId: '1',
+              taskName: 'Aperto de Base e Parafusos',
+              description: 'Revisar folga e reapertar os parafusos estruturais',
+              scheduledDate: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+              status: 'overdue',
+              technician: 'Ana Maria',
+            }
+          ];
+          setMaintenanceTasks(defaultMaint);
+          localStorage.setItem('local_maintenance', JSON.stringify(defaultMaint));
+        }
+      }
+    };
+
+    fetchAllData();
+    const syncInterval = setInterval(fetchAllData, 8000); // Sincroniza a cada 8 segundos
+
+    socket.on('connect', () => {
+      setIsSocketConnected(true);
+      setIsServerSignal(true);
+      setLastDataTimestamp(Date.now());
+    });
+
+    socket.on('disconnect', () => {
+      setIsSocketConnected(false);
+    });
+
     socket.on('dashboard_update', (data) => {
-      if (data.status !== undefined) setStatus(data.status);
-      if (data.vibration !== undefined) setVibrationData(prev => [...prev.slice(-20), data.vibration]);
-      if (data.uptime !== undefined) setUptime(data.uptime);
+      // Evento do socket para dados reais do ESP32
+      setLastDataTimestamp(Date.now());
+      setIsServerSignal(true);
+      
+      const currentId = selectedMachineIdRef.current;
+      if (currentId !== null) {
+        setTelemetryMap(prev => {
+          if (!prev[currentId]) return prev;
+          const currentTel = prev[currentId];
+          const isAtiva = data.status !== undefined ? data.status : currentTel.status;
+          
+          return {
+            ...prev,
+            [currentId]: {
+              ...currentTel,
+              status: isAtiva,
+              vibrationStructural: data.vibration !== undefined ? data.vibration : currentTel.vibrationStructural,
+              vibrationHz: isAtiva ? (data.frequency !== undefined ? data.frequency : 60) : 0,
+              voltage: data.voltage !== undefined ? data.voltage : currentTel.voltage,
+              current: data.current !== undefined ? data.current : currentTel.current,
+              power: data.power !== undefined ? data.power : currentTel.power,
+            }
+          };
+        });
+      }
     });
 
     return () => {
-      clearInterval(mockInterval);
+      clearInterval(syncInterval);
+      socket.off('connect');
+      socket.off('disconnect');
       socket.off('dashboard_update');
     };
-  }, [darkMode]);
+  }, []);
 
-  
   return (
-    <div className="min-h-screen p-6 md:p-12 font-sans transition-colors duration-700">
-
-
-      <div className="fixed inset-0 -z-10 overflow-hidden">
-        <Grainient
-          color1={darkMode ? "#350046" : "#dbc8ff"}
-          color2={darkMode ? "#00222d" : "#cbfcff"}
-          color3={darkMode ? "#000000" : "#ffffff"}
-          timeSpeed={0.15}
-          colorBalance={0}
-          warpStrength={1}
-          warpFrequency={4}
-          warpSpeed={4}
-          warpAmplitude={40}
-          blendAngle={0}
-          blendSoftness={0.1}
-          rotationAmount={300}
-          noiseScale={1.5}
-          grainAmount={0.05}
-          grainScale={1.5}
-          grainAnimated={true}
-          contrast={darkMode ? 1.3 : 1.05}
-          gamma={1}
-          saturation={darkMode ? 1.1 : 0.7}
-          centerX={0}
-          centerY={0}
-          zoom={1}
+    <BrowserRouter>
+      <div className="min-h-screen font-sans transition-colors duration-700">
+        {/* Notificações globais de conexão */}
+        <ConnectionStatus 
+          isConnected={isInternetConnected} 
+          isServerSignal={isServerSignal}
         />
-      </div>
-      <div className="scroll-reveal-mask" />
-      <header className="flex justify-between items-center mb-16 max-w-7xl mx-auto">
-        <div className="flex items-center gap-6">
-          <div className="relative group">
-            <img
-              src={logo}
-              alt="Logo"
-              className={`w-14 h-14 object-contain transition-all duration-700 ${darkMode ? 'brightness-125 contrast-125 drop-shadow-[0_0_15px_rgba(129,47,255,0.6)]' : 'brightness-100'}`}
-            />
-            <div className="absolute inset-0 bg-ios-blue/30 blur-2xl rounded-full opacity-0 group-hover:opacity-100 transition-opacity" />
-          </div>
-          <div className="flex flex-col">
-            <h1 className="text-3xl font-black tracking-tighter leading-none ">
-              Simple <span className="bg-clip-text text-transparent italic pr-1" style={{ backgroundImage: BRAND_GRADIENT }}>IHM</span>
-            </h1>
-            <p className="text-[10px] uppercase tracking-[0.2em] opacity-40 mt-1 font-bold">Industrial Control System</p>
-          </div>
-        </div>
-        <div className="flex items-center gap-4">
-          <button
-            onClick={() => setDarkMode(!darkMode)}
-            className="theme-btn"
-          >
-            {darkMode ? <Sun size={24} className="text-yellow-400" /> : <Moon size={24} className="text-slate-600" />}
-            <span className="theme-btn-text">{darkMode ? 'Dark' : 'Light'}</span>
-          </button>
-        </div>
-      </header>
 
-      <main className="grid grid-cols-1 md:grid-cols-12 gap-10 max-w-7xl mx-auto">
-        {/* Left Column: Big Toggle & Core Status */}
-        <div className="md:col-span-3 flex flex-col items-center gap-8">
-          <div className="flex flex-col items-center gap-4">
-            <p className="text-xs font-black uppercase tracking-widest opacity-30">Power Control</p>
-            <div
-              onClick={() => setStatus(!status)}
-              className={`power-toggle ${status ? 'active' : 'inactive'}`}
-            >
-              <span className="toggle-label label-off">OFF</span>
-              <div className="power-switch">
-                <Power size={24} className="text-white" />
-              </div>
-              <span className="toggle-label label-on">ON</span>
-            </div>
-            <div className="text-center mt-2">
-              <p className={`text-sm font-black tracking-widest transition-colors ${status ? 'text-ios-green' : 'text-ios-red'}`}>
-                SYSTEM {status ? 'ON' : 'OFF'}
-              </p>
-            </div>
-          </div>
-
-          <div className="w-full flex flex-col gap-4 mt-8">
-            <div className="seamless-panel rounded-ios p-6">
-              <div className="flex items-center gap-3 opacity-60 mb-2">
-                <Clock size={16} />
-                <span className="text-xs font-bold uppercase tracking-wider">Session Time</span>
-              </div>
-              <h2 className="text-4xl font-mono font-bold tracking-tighter">{uptime}</h2>
-            </div>
-
-            <div className="seamless-panel rounded-ios p-6">
-              <div className="flex items-center gap-3 opacity-60 mb-2">
-                <Filter size={16} />
-                <span className="text-xs font-bold uppercase tracking-wider">Date Filter</span>
-              </div>
-              <input
-                type="date"
-                value={dateFilter}
-                onChange={(e) => setDateFilter(e.target.value)}
-                className="w-full bg-black/5 dark:bg-white/5 border-none rounded-xl px-4 py-2 text-sm outline-none focus:ring-1 ring-ios-blue/30 transition-all"
+        <Routes>
+          {/* Rota Raiz: Dashboard Pública */}
+          <Route 
+            path="/" 
+            element={
+              <DashboardView 
+                darkMode={darkMode}
+                setDarkMode={setDarkMode}
+                status={status}
+                setStatus={setStatus}
+                isSocketConnected={isSocketConnected}
+                isServerSignal={isServerSignal}
+                uptime={uptime}
+                downtime={downtime}
+                power={power}
+                voltage={voltage}
+                current={current}
+                vibrationHz={vibrationHz}
+                vibrationStructural={vibrationStructural}
+                vibrationData={vibrationData}
+                liveValueData={liveValueData}
+                historyData={historyData}
+                dailyUptimeData={dailyUptimeData}
+                availableMachines={availableMachines}
+                selectedMachineId={selectedMachineId}
+                setSelectedMachineId={setSelectedMachineId}
+                productiveRanking={productiveRanking}
+                stopsRanking={stopsRanking}
+                shiftProductivity={shiftProductivity}
+                maintenanceTasks={maintenanceTasks}
               />
-            </div>
+            } 
+          />
 
-            <div className="seamless-panel rounded-ios p-6 w-full overflow-hidden">
-              <h3 className="text-xs font-bold uppercase tracking-[0.2em] opacity-40 mb-4">Efficiency Log</h3>
-              <table className="w-full text-left text-[11px]">
-                <thead>
-                  <tr className="opacity-30 border-b border-black/5 dark:border-white/5">
-                    <th className="pb-2 font-bold">Day</th>
-                    <th className="pb-2 font-bold text-right">ON/OFF</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-black/5 dark:divide-white/5">
-                  {dailyUptimeData.slice(0, 5).map((row, idx) => (
-                    <tr key={idx} className="group hover:bg-black/5 transition-colors">
-                      <td className="py-2 font-bold">{row.day}</td>
-                      <td className="py-2 font-mono text-right">
-                        <span className="text-ios-green">{row.onHours}h</span>
-                        <span className="mx-1 opacity-10">|</span>
-                        <span className="text-ios-red">{row.offHours}h</span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
+          {/* Rota de Login do Admin */}
+          <Route path="/admin/login" element={<LoginPage />} />
 
-        <div className="md:col-span-9 grid grid-cols-1 md:grid-cols-2 gap-8">
-          {/* Main Live Chart */}
-          <div className="md:col-span-2 seamless-panel rounded-ios p-8">
-            <div className="flex justify-between items-center mb-8">
-              <h3 className="text-xl font-bold flex items-center gap-3">
-                Live Process Frequency
-              </h3>
-            </div>
-            <LiveMetricChart data={liveValueData} title="Output Hz" darkMode={darkMode} />
-          </div>
-
-          <div className="seamless-panel rounded-ios p-8">
-            <h3 className="text-lg font-bold mb-6">Uptime Distribution</h3>
-            <UptimeDailyChart data={dailyUptimeData} darkMode={darkMode} />
-          </div>
-
-          {/* Secondary Charts moved here to replace table */}
-          <div className="seamless-panel rounded-ios p-8">
-            <h3 className="text-lg font-bold mb-6">Structural Vibration</h3>
-            <VibrationChart data={vibrationData} darkMode={darkMode} />
-          </div>
-
-          <div className="md:col-span-2 seamless-panel rounded-ios p-8 mb-12">
-            <h3 className="text-lg font-bold mb-6">Device Status History</h3>
-            <HistoryChart data={historyData} darkMode={darkMode} />
-          </div>
-        </div>
-      </main>
-      <footer className="mt-12 text-center text-xs opacity-30">Connected via Bridge 2026</footer>
-    </div>
+          {/* Área Protegida do Admin */}
+          <Route path="/admin" element={<AdminLayout />}>
+            <Route index element={<Navigate to="/admin/machines" replace />} />
+            <Route path="machines" element={<MachinesPage />} />
+            <Route path="maintenance" element={<MaintenancePage />} />
+          </Route>
+          
+          {/* Rota Curinga */}
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </div>
+    </BrowserRouter>
   );
 }

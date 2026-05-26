@@ -102,7 +102,7 @@
   bottom: 0;
   left: 0;
   right: 0;
-  height: 35vh;
+  height: 15vh;
   background: linear-gradient(to top, var(--aurora-bg) 10%, transparent 100%);
   pointer-events: none;
   z-index: 50;

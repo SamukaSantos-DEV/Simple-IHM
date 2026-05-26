@@ -29,11 +29,18 @@ void loop() {
     float vibration = 0.5 + (random(0, 100) / 200.0); // Simula vibração RMS
     bool isRunning = true;
     
+    float voltage = 220.0 + (random(-50, 50) / 10.0); // Simula 215.0 a 225.0 V
+    float current = 5.0 + (random(-10, 10) / 10.0);   // Simula 4.0 a 6.0 A
+    float power = voltage * current;                  // Simula Potência em Watts
+    
     // Criando JSON
     StaticJsonDocument<200> doc;
     doc["status"] = isRunning;
     doc["vibration"] = vibration;
     doc["uptime"] = String(millis() / 1000) + "s"; // Tempo simples para exemplo
+    doc["voltage"] = voltage;
+    doc["current"] = current;
+    doc["power"] = power;
 
     String requestBody;
     serializeJson(doc, requestBody);
