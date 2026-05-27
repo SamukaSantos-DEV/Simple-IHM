@@ -6,12 +6,21 @@ export default function VibrationChart({ data, darkMode }: { data: number[], dar
   const option = {
     backgroundColor: 'transparent',
     tooltip: { trigger: 'axis' },
+    grid: {
+      top: '10%',
+      left: '3%',
+      right: '4%',
+      bottom: '5%',
+      containLabel: true
+    },
     xAxis: {
       type: 'category',
       show: false,
     },
     yAxis: {
       type: 'value',
+      scale: true,
+      boundaryGap: ['15%', '15%'],
       splitLine: { show: true, lineStyle: { color: gridColor } },
       axisLabel: { color: textColor }
     },
@@ -37,5 +46,5 @@ export default function VibrationChart({ data, darkMode }: { data: number[], dar
     }]
   };
 
-  return <ReactECharts option={option} style={{ height: '150px' }} />;
+  return <ReactECharts option={option} style={{ height: '250px' }} />;
 }
