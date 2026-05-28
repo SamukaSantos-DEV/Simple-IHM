@@ -15,199 +15,380 @@ const io = new Server(server, {
   }
 });
 
-// In-memory database para máquinas (em produção usar banco de dados real)
-let machines = [
+// In-memory database para máquinas, funcionários e manutenções
+let maquinas = [
   {
-    id: '1',
-    name: 'Máquina de Corte 01',
-    description: 'Máquina responsável pelo corte de peças',
-    location: 'Galpão A, Linha 1',
-    status: 'active',
-    createdAt: new Date().toISOString(),
+    id: 1,
+    tag_maquina: "CNC-01",
+    nome_maquina: "Torno CNC Romi",
+    setor: "Usinagem",
+    data_cadastro: "2026-05-15T00:40:48.887079Z"
+  },
+  {
+    id: 4,
+    tag_maquina: "EST-01",
+    nome_maquina: "Esteira Transportadora Central",
+    setor: "Logistica",
+    data_cadastro: "2026-05-22T16:53:47.284060Z"
   }
 ];
 
-let maintenanceTasks = [
+let funcionarios = [
   {
-    id: '1',
-    machineId: '1',
-    taskName: 'Troca de Óleo Lubrificante',
-    description: 'Trocar o óleo lubrificante hidráulico da base',
-    scheduledDate: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-    status: 'pending',
-    technician: 'Carlos Eduardo',
-    createdAt: new Date().toISOString(),
+    id: 1,
+    nome: "Carlos Eduardo",
+    cargo: "Técnico de Manutenção",
+    turno_trabalho: 1,
+    ativo: true,
+    email: "carlos@example.com"
   },
   {
-    id: '2',
-    machineId: '1',
-    taskName: 'Aperto de Base e Parafusos',
-    description: 'Revisar folga e reapertar os parafusos estruturais',
-    scheduledDate: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-    status: 'overdue',
-    technician: 'Ana Maria',
-    createdAt: new Date().toISOString(),
+    id: 2,
+    nome: "Ana Maria",
+    cargo: "Engenheira de Confiabilidade",
+    turno_trabalho: 2,
+    ativo: true,
+    email: "ana@example.com"
+  }
+];
+
+let manutencoes = [
+  {
+    id: 1,
+    maquina_id: 1,
+    tag_maquina: "CNC-01",
+    nome_maquina: "Torno CNC Romi",
+    descricao_servico: "Troca de Óleo Lubrificante",
+    data_agendada: "2026-05-28",
+    concluida: false,
+    data_conclusao_real: null,
+    funcionario_id: null,
+    nome_funcionario: null,
+    tipo_manutencao: "Preventiva"
+  },
+  {
+    id: 2,
+    maquina_id: 1,
+    tag_maquina: "CNC-01",
+    nome_maquina: "Torno CNC Romi",
+    descricao_servico: "Aperto de Base e Parafusos",
+    data_agendada: "2026-05-26",
+    concluida: false,
+    data_conclusao_real: null,
+    funcionario_id: null,
+    nome_funcionario: null,
+    tipo_manutencao: "Corretiva"
   }
 ];
 
 // ============ ROTAS DE MÁQUINAS ============
 
 // GET - Listar todas as máquinas
-app.get('/api/machines', (req, res) => {
-  res.json(machines);
+app.get('/maquinas', (req, res) => {
+  res.json(maquinas);
 });
 
 // GET - Obter máquina por ID
-app.get('/api/machines/:id', (req, res) => {
-  const machine = machines.find(m => m.id === req.params.id);
-  if (!machine) {
+app.get('/maquinas/:maquina_id', (req, res) => {
+  const id = parseInt(req.params.maquina_id);
+  const maquina = maquinas.find(m => m.id === id);
+  if (!maquina) {
     return res.status(404).json({ error: 'Máquina não encontrada' });
   }
-  res.json(machine);
+  res.json(maquina);
 });
 
 // POST - Criar nova máquina
-app.post('/api/machines', (req, res) => {
-  const { name, description, location, status } = req.body;
+app.post('/maquinas', (req, res) => {
+  const { tag_maquina, nome_maquina, setor } = req.body;
   
-  if (!name || !location) {
-    return res.status(400).json({ error: 'Nome e localização são obrigatórios' });
+  if (!tag_maquina || !nome_maquina || !setor) {
+    return res.status(400).json({ error: 'Tag, nome e setor são obrigatórios' });
   }
 
-  const newMachine = {
-    id: Date.now().toString(),
-    name,
-    description: description || '',
-    location,
-    status: status || 'active',
-    createdAt: new Date().toISOString(),
+  const newMaquina = {
+    id: Math.max(0, ...maquinas.map(m => m.id)) + 1,
+    tag_maquina,
+    nome_maquina,
+    setor,
+    data_cadastro: new Date().toISOString(),
   };
 
-  machines.push(newMachine);
-  
-  // Notificar clientes sobre nova máquina
-  io.emit('machine_created', newMachine);
-  
-  res.status(201).json(newMachine);
+  maquinas.push(newMaquina);
+  io.emit('maquina_criada', newMaquina);
+  res.status(201).json(newMaquina);
 });
 
 // PUT - Atualizar máquina
-app.put('/api/machines/:id', (req, res) => {
-  const machineIndex = machines.findIndex(m => m.id === req.params.id);
+app.put('/maquinas/:maquina_id', (req, res) => {
+  const id = parseInt(req.params.maquina_id);
+  const maquinaIndex = maquinas.findIndex(m => m.id === id);
   
-  if (machineIndex === -1) {
+  if (maquinaIndex === -1) {
     return res.status(404).json({ error: 'Máquina não encontrada' });
   }
 
-  const { name, description, location, status } = req.body;
+  const { tag_maquina, nome_maquina, setor } = req.body;
   
-  if (!name || !location) {
-    return res.status(400).json({ error: 'Nome e localização são obrigatórios' });
+  if (!tag_maquina || !nome_maquina || !setor) {
+    return res.status(400).json({ error: 'Tag, nome e setor são obrigatórios' });
   }
 
-  machines[machineIndex] = {
-    ...machines[machineIndex],
-    name,
-    description: description || '',
-    location,
-    status: status || machines[machineIndex].status,
+  maquinas[maquinaIndex] = {
+    ...maquinas[maquinaIndex],
+    tag_maquina,
+    nome_maquina,
+    setor,
   };
 
-  // Notificar clientes sobre atualização
-  io.emit('machine_updated', machines[machineIndex]);
-  
-  res.json(machines[machineIndex]);
+  io.emit('maquina_atualizada', maquinas[maquinaIndex]);
+  res.json(maquinas[maquinaIndex]);
 });
 
 // DELETE - Deletar máquina
-app.delete('/api/machines/:id', (req, res) => {
-  const machineIndex = machines.findIndex(m => m.id === req.params.id);
+app.delete('/maquinas/:maquina_id', (req, res) => {
+  const id = parseInt(req.params.maquina_id);
+  const maquinaIndex = maquinas.findIndex(m => m.id === id);
   
-  if (machineIndex === -1) {
+  if (maquinaIndex === -1) {
     return res.status(404).json({ error: 'Máquina não encontrada' });
   }
 
-  const deletedMachine = machines.splice(machineIndex, 1)[0];
+  const deletedMachine = maquinas.splice(maquinaIndex, 1)[0];
   
-  // Deletar também as manutenções associadas a esta máquina
-  maintenanceTasks = maintenanceTasks.filter(t => t.machineId !== req.params.id);
+  // Limpar manutenções associadas
+  manutencoes = manutencoes.filter(t => t.maquina_id !== id);
   
-  // Notificar clientes sobre deleção
-  io.emit('machine_deleted', deletedMachine.id);
+  io.emit('maquina_deletada', id);
+  res.json({ message: 'Máquina deletada com sucesso', maquina: deletedMachine });
+});
+
+// ============ ROTAS DE FUNCIONÁRIOS ============
+
+// GET - Listar funcionários
+app.get('/funcionarios', (req, res) => {
+  res.json(funcionarios);
+});
+
+// GET - Obter funcionário por ID
+app.get('/funcionarios/:funcionario_id', (req, res) => {
+  const id = parseInt(req.params.funcionario_id);
+  const func = funcionarios.find(f => f.id === id);
+  if (!func) {
+    return res.status(404).json({ error: 'Funcionário não encontrado' });
+  }
+  res.json(func);
+});
+
+// POST - Criar funcionário
+app.post('/funcionarios', (req, res) => {
+  const { nome, cargo, turno_trabalho, email, senha } = req.body;
   
-  res.json({ message: 'Máquina deletada com sucesso', machine: deletedMachine });
+  if (!nome || !cargo || !email || !senha) {
+    return res.status(400).json({ error: 'Nome, cargo, email e senha são obrigatórios' });
+  }
+
+  const newFunc = {
+    id: Math.max(0, ...funcionarios.map(f => f.id)) + 1,
+    nome,
+    cargo,
+    turno_trabalho: turno_trabalho !== undefined ? parseInt(turno_trabalho) : 0,
+    ativo: true,
+    email,
+  };
+
+  funcionarios.push(newFunc);
+  io.emit('funcionario_criado', newFunc);
+  res.status(201).json(newFunc);
+});
+
+// PUT - Atualizar funcionário
+app.put('/funcionarios/:funcionario_id', (req, res) => {
+  const id = parseInt(req.params.funcionario_id);
+  const funcIndex = funcionarios.findIndex(f => f.id === id);
+  
+  if (funcIndex === -1) {
+    return res.status(404).json({ error: 'Funcionário não encontrado' });
+  }
+
+  const { nome, cargo, turno_trabalho, email } = req.body;
+  
+  if (!nome || !cargo || !email) {
+    return res.status(400).json({ error: 'Nome, cargo e email são obrigatórios' });
+  }
+
+  funcionarios[funcIndex] = {
+    ...funcionarios[funcIndex],
+    nome,
+    cargo,
+    turno_trabalho: turno_trabalho !== undefined ? parseInt(turno_trabalho) : funcionarios[funcIndex].turno_trabalho,
+    email,
+  };
+
+  io.emit('funcionario_atualizado', funcionarios[funcIndex]);
+  res.json(funcionarios[funcIndex]);
+});
+
+// DELETE - Deletar funcionário
+app.delete('/funcionarios/:funcionario_id', (req, res) => {
+  const id = parseInt(req.params.funcionario_id);
+  const funcIndex = funcionarios.findIndex(f => f.id === id);
+  
+  if (funcIndex === -1) {
+    return res.status(404).json({ error: 'Funcionário não encontrado' });
+  }
+
+  const deletedFunc = funcionarios.splice(funcIndex, 1)[0];
+  
+  // Desvincular das manutenções concluídas por ele (ou manter histórico de nome_funcionario)
+  manutencoes = manutencoes.map(m => {
+    if (m.funcionario_id === id) {
+      return { ...m, funcionario_id: null };
+    }
+    return m;
+  });
+
+  io.emit('funcionario_deletado', id);
+  res.json({ message: 'Funcionário deletado com sucesso', funcionario: deletedFunc });
 });
 
 // ============ ROTAS DE MANUTENÇÃO PREVENTIVA ============
 
 // GET - Listar todas as tarefas de manutenção
-app.get('/api/maintenance', (req, res) => {
-  res.json(maintenanceTasks);
+app.get('/manutencoes', (req, res) => {
+  // Enriquecer dados da manutenção (tag_maquina, nome_maquina, nome_funcionario) em tempo real
+  const enriched = manutencoes.map(m => {
+    const maquina = maquinas.find(maq => maq.id === m.maquina_id);
+    const func = m.funcionario_id ? funcionarios.find(f => f.id === m.funcionario_id) : null;
+    return {
+      ...m,
+      tag_maquina: maquina ? maquina.tag_maquina : m.tag_maquina,
+      nome_maquina: maquina ? maquina.nome_maquina : m.nome_maquina,
+      nome_funcionario: func ? func.nome : m.nome_funcionario,
+    };
+  });
+  res.json(enriched);
+});
+
+// GET - Obter manutenção específica por ID
+app.get('/manutencoes/:manutencao_id', (req, res) => {
+  const id = parseInt(req.params.manutencao_id);
+  const m = manutencoes.find(item => item.id === id);
+  
+  if (!m) {
+    return res.status(404).json({ error: 'Manutenção não encontrada' });
+  }
+
+  const maquina = maquinas.find(maq => maq.id === m.maquina_id);
+  const func = m.funcionario_id ? funcionarios.find(f => f.id === m.funcionario_id) : null;
+  res.json({
+    ...m,
+    tag_maquina: maquina ? maquina.tag_maquina : m.tag_maquina,
+    nome_maquina: maquina ? maquina.nome_maquina : m.nome_maquina,
+    nome_funcionario: func ? func.nome : m.nome_funcionario,
+  });
 });
 
 // POST - Criar nova tarefa de manutenção
-app.post('/api/maintenance', (req, res) => {
-  const { machineId, taskName, description, scheduledDate, status, technician } = req.body;
+app.post('/manutencoes', (req, res) => {
+  const { maquina_id, descricao_servico, data_agendada, tipo_manutencao } = req.body;
   
-  if (!machineId || !taskName || !scheduledDate) {
-    return res.status(400).json({ error: 'ID da máquina, nome da tarefa e data agendada são obrigatórios' });
+  if (maquina_id === undefined || !descricao_servico || !data_agendada || !tipo_manutencao) {
+    return res.status(400).json({ error: 'maquina_id, descricao_servico, data_agendada e tipo_manutencao são obrigatórios' });
   }
 
+  const mid = parseInt(maquina_id);
+  const maquina = maquinas.find(maq => maq.id === mid);
+  
   const newTask = {
-    id: Date.now().toString(),
-    machineId,
-    taskName,
-    description: description || '',
-    scheduledDate,
-    status: status || 'pending',
-    technician: technician || '',
-    createdAt: new Date().toISOString(),
+    id: Math.max(0, ...manutencoes.map(m => m.id)) + 1,
+    maquina_id: mid,
+    tag_maquina: maquina ? maquina.tag_maquina : '',
+    nome_maquina: maquina ? maquina.nome_maquina : '',
+    descricao_servico,
+    data_agendada,
+    concluida: false,
+    data_conclusao_real: null,
+    funcionario_id: null,
+    nome_funcionario: null,
+    tipo_manutencao: tipo_manutencao || 'Preventiva',
   };
 
-  maintenanceTasks.push(newTask);
-  io.emit('maintenance_created', newTask);
+  manutencoes.push(newTask);
+  io.emit('manutencao_criada', newTask);
   res.status(201).json(newTask);
 });
 
 // PUT - Atualizar tarefa de manutenção
-app.put('/api/maintenance/:id', (req, res) => {
-  const taskIndex = maintenanceTasks.findIndex(t => t.id === req.params.id);
+app.put('/manutencoes/:manutencao_id', (req, res) => {
+  const id = parseInt(req.params.manutencao_id);
+  const taskIndex = manutencoes.findIndex(t => t.id === id);
   
   if (taskIndex === -1) {
-    return res.status(404).json({ error: 'Tarefa de manutenção não encontrada' });
+    return res.status(404).json({ error: 'Manutenção não encontrada' });
   }
 
-  const { machineId, taskName, description, scheduledDate, status, technician } = req.body;
+  const { descricao_servico, data_agendada, tipo_manutencao } = req.body;
 
-  if (!machineId || !taskName || !scheduledDate) {
-    return res.status(400).json({ error: 'ID da máquina, nome da tarefa e data agendada são obrigatórios' });
+  if (!descricao_servico || !data_agendada || !tipo_manutencao) {
+    return res.status(400).json({ error: 'descricao_servico, data_agendada e tipo_manutencao são obrigatórios' });
   }
 
-  maintenanceTasks[taskIndex] = {
-    ...maintenanceTasks[taskIndex],
-    machineId,
-    taskName,
-    description: description || '',
-    scheduledDate,
-    status: status || maintenanceTasks[taskIndex].status,
-    technician: technician || '',
+  manutencoes[taskIndex] = {
+    ...manutencoes[taskIndex],
+    descricao_servico,
+    data_agendada,
+    tipo_manutencao,
   };
 
-  io.emit('maintenance_updated', maintenanceTasks[taskIndex]);
-  res.json(maintenanceTasks[taskIndex]);
+  io.emit('manutencao_atualizada', manutencoes[taskIndex]);
+  res.json(manutencoes[taskIndex]);
 });
 
 // DELETE - Deletar tarefa de manutenção
-app.delete('/api/maintenance/:id', (req, res) => {
-  const taskIndex = maintenanceTasks.findIndex(t => t.id === req.params.id);
+app.delete('/manutencoes/:manutencao_id', (req, res) => {
+  const id = parseInt(req.params.manutencao_id);
+  const taskIndex = manutencoes.findIndex(t => t.id === id);
   
   if (taskIndex === -1) {
-    return res.status(404).json({ error: 'Tarefa de manutenção não encontrada' });
+    return res.status(404).json({ error: 'Manutenção não encontrada' });
   }
 
-  const deletedTask = maintenanceTasks.splice(taskIndex, 1)[0];
-  io.emit('maintenance_deleted', deletedTask.id);
-  res.json({ message: 'Tarefa de manutenção deletada com sucesso', task: deletedTask });
+  const deletedTask = manutencoes.splice(taskIndex, 1)[0];
+  io.emit('manutencao_deletada', id);
+  res.json({ message: 'Manutenção deletada com sucesso', task: deletedTask });
+});
+
+// PATCH - Concluir tarefa de manutenção
+app.patch('/manutencoes/:manutencao_id/concluir', (req, res) => {
+  const id = parseInt(req.params.manutencao_id);
+  const taskIndex = manutencoes.findIndex(t => t.id === id);
+  
+  if (taskIndex === -1) {
+    return res.status(404).json({ error: 'Manutenção não encontrada' });
+  }
+
+  const { funcionario_id } = req.body;
+  if (funcionario_id === undefined || funcionario_id === null) {
+    return res.status(400).json({ error: 'funcionario_id é obrigatório' });
+  }
+
+  const fid = parseInt(funcionario_id);
+  const func = funcionarios.find(f => f.id === fid);
+  if (!func) {
+    return res.status(404).json({ error: 'Funcionário não encontrado' });
+  }
+
+  manutencoes[taskIndex] = {
+    ...manutencoes[taskIndex],
+    concluida: true,
+    data_conclusao_real: new Date().toISOString(),
+    funcionario_id: fid,
+    nome_funcionario: func.nome,
+  };
+
+  io.emit('manutencao_atualizada', manutencoes[taskIndex]);
+  res.json(manutencoes[taskIndex]);
 });
 
 // ============ ROTAS ANTIGAS ============

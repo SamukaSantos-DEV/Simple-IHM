@@ -7,8 +7,9 @@ import LoginPage from './components/admin/LoginPage';
 import AdminLayout from './components/admin/AdminLayout';
 import MachinesPage from './components/MachinesPage';
 import MaintenancePage from './components/admin/MaintenancePage';
+import FuncionariosPage from './components/admin/FuncionariosPage';
 
-const socket = io('http://localhost:3001');
+const socket = io('https://caucasian-septum-syndrome.ngrok-free.dev');
 
 interface MachineTelemetry {
   uptimeSeconds: number;
@@ -62,6 +63,9 @@ export default function App() {
 
   // Manutenções preventivas
   const [maintenanceTasks, setMaintenanceTasks] = useState<any[]>([]);
+
+  // Histórico de logs de telemetria recebidos da API
+  const [telemetryLogs, setTelemetryLogs] = useState<any[]>([]);
 
   // Rankings e Turnos
   const [productiveRanking, setProductiveRanking] = useState<{ name: string; efficiency: number }[]>([]);
@@ -350,14 +354,19 @@ export default function App() {
     const fetchAllData = async () => {
       // 1. Carregar máquinas
       try {
-        const localResponse = await fetch('http://localhost:3001/api/machines');
+        const localResponse = await fetch('https://caucasian-septum-syndrome.ngrok-free.dev/maquinas', {
+          headers: {
+            'Content-Type': 'application/json',
+            'ngrok-skip-browser-warning': 'true'
+          }
+        });
         if (localResponse.ok) {
           const machinesLocal = await localResponse.json();
           if (machinesLocal && machinesLocal.length > 0) {
             setAvailableMachines(machinesLocal.map((m: any) => ({
               id: m.id,
-              name: m.name,
-              tag: m.tag || m.name
+              name: m.nome_maquina,
+              tag: m.tag_maquina || m.nome_maquina
             })));
             
             localStorage.setItem('local_machines', JSON.stringify(machinesLocal));
@@ -375,8 +384,8 @@ export default function App() {
            const parsed = JSON.parse(stored);
           setAvailableMachines(parsed.map((m: any) => ({
             id: m.id,
-            name: m.name,
-            tag: m.tag || m.name
+            name: m.nome_maquina || m.name,
+            tag: m.tag_maquina || m.tag || m.nome_maquina || m.name
           })));
           if (selectedMachineIdRef.current === null && parsed.length > 0) {
             setSelectedMachineIdState(parsed[0].id);
@@ -384,10 +393,10 @@ export default function App() {
           }
         } else {
           // Mock padrão
-          const defaultMachines = [{ id: '1', name: 'Máquina de Corte 01', tag: 'MC-01' }];
+          const defaultMachines = [{ id: 1, name: 'Torno CNC Romi', tag: 'CNC-01' }];
           setAvailableMachines(defaultMachines);
-          setSelectedMachineIdState('1');
-          selectedMachineIdRef.current = '1';
+          setSelectedMachineIdState(1);
+          selectedMachineIdRef.current = 1;
         }
       }
 
@@ -410,19 +419,47 @@ export default function App() {
               const newList = [...prev];
               ngrokData.forEach((m: any) => {
                 const id = m.maquina_id;
-                const name = m.nome_maquina 
-                  ? `${m.tag_maquina ? m.tag_maquina + ' - ' : ''}${m.nome_maquina}`
-                  : (m.tag_maquina || `Máquina ${id}`);
-                const tag = m.tag_maquina || `M${id}`;
                 
                 const existingIndex = newList.findIndex(x => x.id.toString() === id.toString());
                 if (existingIndex === -1) {
+                  const name = m.nome_maquina 
+                    ? `${m.tag_maquina ? m.tag_maquina + ' - ' : ''}${m.nome_maquina}`
+                    : (m.tag_maquina || `Máquina ${id}`);
+                  const tag = m.tag_maquina || `M${id}`;
                   newList.push({ id, name, tag });
-                } else {
-                  newList[existingIndex] = { id, name, tag };
                 }
               });
               return newList;
+            });
+
+            // 1.5. Atualizar o histórico de logs de telemetria
+            setTelemetryLogs(prev => {
+              const newEntries: any[] = [];
+              ngrokData.forEach((m: any) => {
+                const maquinaRel = availableMachines.find(x => x.id.toString() === m.maquina_id.toString());
+                const name = maquinaRel ? maquinaRel.name : (m.nome_maquina || `Máquina ${m.maquina_id}`);
+                
+                const exists = prev.some(log => log.maquina_id === m.maquina_id && log.momento_da_leitura === m.momento_da_leitura);
+                if (!exists) {
+                  newEntries.push({
+                    maquina_id: m.maquina_id,
+                    name,
+                    status_atual: m.status_atual || 'Inativa',
+                    vibracao_rms: m.vibracao_rms || 0,
+                    corrente_ampere: m.corrente_ampere || 0,
+                    tensao_volt: m.tensao_volt || 0,
+                    potencia_watt: m.potencia_watt || 0,
+                    frequencia_hz: m.frequencia_hz || 0,
+                    momento_da_leitura: m.momento_da_leitura
+                  });
+                }
+              });
+              
+              if (newEntries.length === 0) return prev;
+              
+              const combined = [...newEntries, ...prev];
+              combined.sort((a, b) => new Date(b.momento_da_leitura).getTime() - new Date(a.momento_da_leitura).getTime());
+              return combined.slice(0, 25);
             });
 
             // 2. Atualizar a telemetria com os dados do ngrok
@@ -506,40 +543,77 @@ export default function App() {
 
       // 2. Carregar manutenções preventivas
       try {
-        const maintenanceResponse = await fetch('http://localhost:3001/api/maintenance');
+        const maintenanceResponse = await fetch('https://caucasian-septum-syndrome.ngrok-free.dev/manutencoes', {
+          headers: {
+            'Content-Type': 'application/json',
+            'ngrok-skip-browser-warning': 'true'
+          }
+        });
         if (maintenanceResponse.ok) {
           const maintenanceData = await maintenanceResponse.json();
-          setMaintenanceTasks(maintenanceData);
+          
+          const normalizeMaint = (list: any[]) => list.map((t: any) => ({
+            id: t.id,
+            machineId: t.maquina_id !== undefined ? t.maquina_id : t.machineId,
+            taskName: t.descricao_servico !== undefined ? t.descricao_servico : t.taskName,
+            description: t.tipo_manutencao !== undefined ? t.tipo_manutencao : t.description,
+            scheduledDate: t.data_agendada !== undefined ? t.data_agendada : t.scheduledDate,
+            status: t.concluida !== undefined 
+              ? (t.concluida ? 'completed' : (new Date(t.data_agendada) < new Date(new Date().setHours(0,0,0,0)) ? 'overdue' : 'pending'))
+              : t.status,
+            technician: t.nome_funcionario !== undefined ? (t.nome_funcionario || '') : (t.technician || ''),
+          }));
+
+          const normalized = normalizeMaint(maintenanceData);
+          setMaintenanceTasks(normalized);
           localStorage.setItem('local_maintenance', JSON.stringify(maintenanceData));
         }
       } catch (e) {
         console.warn("Backend local offline para carregar manutenções. Carregando do localStorage...");
         const storedMaint = localStorage.getItem('local_maintenance');
         if (storedMaint) {
-          setMaintenanceTasks(JSON.parse(storedMaint));
+          const parsed = JSON.parse(storedMaint);
+          const normalizeMaint = (list: any[]) => list.map((t: any) => ({
+            id: t.id,
+            machineId: t.maquina_id !== undefined ? t.maquina_id : t.machineId,
+            taskName: t.descricao_servico !== undefined ? t.descricao_servico : t.taskName,
+            description: t.tipo_manutencao !== undefined ? t.tipo_manutencao : t.description,
+            scheduledDate: t.data_agendada !== undefined ? t.data_agendada : t.scheduledDate,
+            status: t.concluida !== undefined 
+              ? (t.concluida ? 'completed' : (new Date(t.data_agendada) < new Date(new Date().setHours(0,0,0,0)) ? 'overdue' : 'pending'))
+              : t.status,
+            technician: t.nome_funcionario !== undefined ? (t.nome_funcionario || '') : (t.technician || ''),
+          }));
+          setMaintenanceTasks(normalizeMaint(parsed));
         } else {
           // Mock inicial de manutenções
           const defaultMaint = [
             {
-              id: '1',
-              machineId: '1',
-              taskName: 'Troca de Óleo Lubrificante',
-              description: 'Trocar o óleo lubrificante hidráulico da base',
-              scheduledDate: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-              status: 'pending',
-              technician: 'Carlos Eduardo',
-            },
-            {
-              id: '2',
-              machineId: '1',
-              taskName: 'Aperto de Base e Parafusos',
-              description: 'Revisar folga e reapertar os parafusos estruturais',
-              scheduledDate: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-              status: 'overdue',
-              technician: 'Ana Maria',
+              id: 1,
+              maquina_id: 1,
+              tag_maquina: 'CNC-01',
+              nome_maquina: 'Torno CNC Romi',
+              descricao_servico: 'Troca de Óleo Lubrificante',
+              tipo_manutencao: 'Preventiva',
+              data_agendada: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+              concluida: false,
+              data_conclusao_real: null,
+              funcionario_id: null,
+              nome_funcionario: null,
             }
           ];
-          setMaintenanceTasks(defaultMaint);
+          const normalizeMaint = (list: any[]) => list.map((t: any) => ({
+            id: t.id,
+            machineId: t.maquina_id !== undefined ? t.maquina_id : t.machineId,
+            taskName: t.descricao_servico !== undefined ? t.descricao_servico : t.taskName,
+            description: t.tipo_manutencao !== undefined ? t.tipo_manutencao : t.description,
+            scheduledDate: t.data_agendada !== undefined ? t.data_agendada : t.scheduledDate,
+            status: t.concluida !== undefined 
+              ? (t.concluida ? 'completed' : (new Date(t.data_agendada) < new Date(new Date().setHours(0,0,0,0)) ? 'overdue' : 'pending'))
+              : t.status,
+            technician: t.nome_funcionario !== undefined ? (t.nome_funcionario || '') : (t.technician || ''),
+          }));
+          setMaintenanceTasks(normalizeMaint(defaultMaint));
           localStorage.setItem('local_maintenance', JSON.stringify(defaultMaint));
         }
       }
@@ -633,6 +707,7 @@ export default function App() {
                 stopsRanking={stopsRanking}
                 shiftProductivity={shiftProductivity}
                 maintenanceTasks={maintenanceTasks}
+                telemetryLogs={telemetryLogs}
               />
             } 
           />
@@ -644,6 +719,7 @@ export default function App() {
           <Route path="/admin" element={<AdminLayout />}>
             <Route index element={<Navigate to="/admin/machines" replace />} />
             <Route path="machines" element={<MachinesPage />} />
+            <Route path="funcionarios" element={<FuncionariosPage />} />
             <Route path="maintenance" element={<MaintenancePage />} />
           </Route>
           

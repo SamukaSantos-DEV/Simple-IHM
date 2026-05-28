@@ -1,5 +1,5 @@
 import { Navigate, Outlet, useNavigate, Link, useLocation } from 'react-router-dom';
-import { LogOut, Wrench, Settings } from 'lucide-react';
+import { LogOut, Wrench, Settings, Users } from 'lucide-react';
 import logo from '../../assets/hero.png';
 
 export default function AdminLayout() {
@@ -37,6 +37,17 @@ export default function AdminLayout() {
           >
             <Settings size={14} />
             MÁQUINAS
+          </Link>
+          <Link
+            to="/admin/funcionarios"
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold transition-all
+              ${location.pathname === '/admin/funcionarios'
+                ? 'bg-ios-blue text-white shadow-md shadow-ios-blue/25'
+                : 'opacity-70 hover:opacity-100'
+              }`}
+          >
+            <Users size={14} />
+            FUNCIONÁRIOS
           </Link>
           <Link
             to="/admin/maintenance"

@@ -42,6 +42,7 @@ interface DashboardViewProps {
   stopsRanking?: { name: string, stops: number }[];
   shiftProductivity?: { shift: string, productivity: number }[];
   maintenanceTasks?: any[];
+  telemetryLogs?: any[];
 }
 
 export default function DashboardView(props: DashboardViewProps) {
@@ -54,7 +55,7 @@ export default function DashboardView(props: DashboardViewProps) {
     vibrationData, liveValueData, historyData, dailyUptimeData,
     availableMachines, selectedMachineId, setSelectedMachineId,
     productiveRanking = [], stopsRanking = [], shiftProductivity = [],
-    maintenanceTasks = []
+    maintenanceTasks = [], telemetryLogs = []
   } = props;
 
   const navigate = useNavigate();
@@ -392,28 +393,50 @@ export default function DashboardView(props: DashboardViewProps) {
                     />
                   </div>
 
-                  <div className="seamless-panel rounded-ios p-6 w-full overflow-hidden">
-                    <h3 className="text-xs font-bold uppercase tracking-[0.2em] opacity-40 mb-4">Log de Eficiência</h3>
-                    <table className="w-full text-left text-[11px]">
-                      <thead>
-                        <tr className="opacity-30 border-b border-black/5 dark:border-white/5">
-                          <th className="pb-2 font-bold">Dia</th>
-                          <th className="pb-2 font-bold text-right">ON/OFF</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-black/5 dark:divide-white/5">
-                        {dailyUptimeData.slice(0, 5).map((row, idx) => (
-                          <tr key={idx} className="group hover:bg-black/5 dark:hover:bg-white/5 transition-colors">
-                            <td className="py-2 font-bold">{row.day}</td>
-                            <td className="py-2 font-mono text-right">
-                              <span className="text-ios-green">{row.onHours}h</span>
-                              <span className="mx-1 opacity-10">|</span>
-                              <span className="text-ios-red">{row.offHours}h</span>
-                            </td>
+                   <div className="seamless-panel rounded-ios p-6 w-full overflow-hidden flex flex-col">
+                    <div className="flex justify-between items-center mb-4">
+                      <h3 className="text-xs font-bold uppercase tracking-[0.2em] opacity-40">Logs de Leitura (API)</h3>
+                      <span className="text-[9px] uppercase font-bold text-ios-blue animate-pulse">Live</span>
+                    </div>
+                    <div className="max-h-[220px] overflow-y-auto pr-1">
+                      <table className="w-full text-left text-[10px]">
+                        <thead>
+                          <tr className="opacity-30 border-b border-black/5 dark:border-white/5">
+                            <th className="pb-2 font-bold">Hora/Máquina</th>
+                            <th className="pb-2 font-bold text-right">Métricas</th>
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                        </thead>
+                        <tbody className="divide-y divide-black/5 dark:divide-white/5">
+                          {telemetryLogs && telemetryLogs.length > 0 ? (
+                            telemetryLogs.map((log: any, idx: number) => {
+                              const timeStr = new Date(log.momento_da_leitura).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                              return (
+                                <tr key={idx} className="group hover:bg-black/5 dark:hover:bg-white/5 transition-colors">
+                                  <td className="py-2">
+                                    <div className="font-mono text-ios-blue">{timeStr}</div>
+                                    <div className="font-bold text-slate-800 dark:text-slate-200 truncate max-w-[120px]">{log.name}</div>
+                                  </td>
+                                  <td className="py-2 text-right font-mono">
+                                    <div className={`${log.status_atual?.toLowerCase() === 'ativa' ? 'text-ios-green' : 'text-ios-red'} font-bold`}>
+                                      {(log.status_atual || 'Inativa').toUpperCase()}
+                                    </div>
+                                    <div className="text-[9px] opacity-60">
+                                      {log.potencia_watt?.toFixed(0)}W | {log.vibracao_rms?.toFixed(2)}G
+                                    </div>
+                                  </td>
+                                </tr>
+                              );
+                            })
+                          ) : (
+                            <tr>
+                              <td colSpan={2} className="py-8 text-center opacity-50">
+                                Aguardando leituras da API...
+                              </td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
                   </div>
 
                   {/* Energy Metrics */}
