@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import {
-  Power, Clock, Zap, Sun, Moon, Settings, Filter,
+  Power, Clock, Zap, Sun, Moon, Filter,
   Activity as ActivityIcon, ChevronDown, Check, BarChart3,
   TrendingUp, AlertTriangle, ShieldCheck, Wrench, ShieldAlert,
   ListFilter
@@ -35,7 +35,7 @@ interface DashboardViewProps {
   liveValueData: number[];
   historyData: { time: string; status: number }[];
   dailyUptimeData: any[];
-  availableMachines?: { id: number | string, name: string }[];
+  availableMachines?: { id: number | string, name: string, tag?: string }[];
   selectedMachineId?: number | string | null;
   setSelectedMachineId?: (id: number | string) => void;
   productiveRanking?: { name: string, efficiency: number }[];
@@ -65,7 +65,7 @@ export default function DashboardView(props: DashboardViewProps) {
 
   // Filtrar tarefas de manutenção para a máquina selecionada
   const activeMaintenance = maintenanceTasks.filter(t =>
-    selectedMachineId !== null && t.machineId.toString() === selectedMachineId.toString()
+    selectedMachineId !== undefined && selectedMachineId !== null && t.machineId.toString() === selectedMachineId.toString()
   );
 
   const pendingCount = activeMaintenance.filter(t => t.status === 'pending' || t.status === 'in_progress').length;
@@ -227,10 +227,15 @@ export default function DashboardView(props: DashboardViewProps) {
             <div className="relative">
               <button
                 onClick={() => setIsDropdownOpen(!isDropdownOpen)}
-                className="flex items-center gap-2 bg-black/5 dark:bg-white/5 border border-black/10 dark:border-white/10 rounded-xl px-4 py-2 text-sm font-bold outline-none hover:bg-black/10 dark:hover:bg-white/10 transition-all cursor-pointer backdrop-blur-md text-slate-500 "
+                className="flex items-center gap-2 bg-black/5 dark:bg-white/5 border border-black/10 dark:border-white/10 rounded-xl px-4 py-2 text-sm font-bold outline-none hover:bg-black/10 dark:hover:bg-white/10 transition-all cursor-pointer backdrop-blur-md text-slate-500 whitespace-nowrap shrink-0"
               >
-                {availableMachines.find(m => m.id.toString() === selectedMachineId?.toString())?.name || 'Selecione a Máquina'}
-                <ChevronDown size={16} className={`transition-transform duration-300 ${isDropdownOpen ? 'rotate-180' : ''}`} />
+                <span className="hidden md:inline">
+                  {availableMachines.find(m => m.id.toString() === selectedMachineId?.toString())?.name || 'Selecione a Máquina'}
+                </span>
+                <span className="inline md:hidden">
+                  {availableMachines.find(m => m.id.toString() === selectedMachineId?.toString())?.tag || availableMachines.find(m => m.id.toString() === selectedMachineId?.toString())?.name || 'Máquina'}
+                </span>
+                <ChevronDown size={16} className={`transition-transform duration-300 shrink-0 ${isDropdownOpen ? 'rotate-180' : ''}`} />
               </button>
 
               {isDropdownOpen && (
@@ -245,14 +250,15 @@ export default function DashboardView(props: DashboardViewProps) {
                             setSelectedMachineId(m.id);
                             setIsDropdownOpen(false);
                           }}
-                          className={`w-full flex items-center justify-between text-left px-3 py-2.5 text-xs rounded-lg transition-all duration-200 cursor-pointer
+                          className={`w-full flex items-center justify-between text-left px-3 py-2.5 text-xs rounded-lg transition-all duration-200 cursor-pointer gap-2
                             ${selectedMachineId?.toString() === m.id.toString()
                               ? 'bg-ios-blue text-white font-bold shadow-md shadow-ios-blue/20'
                               : 'text-slate-700 dark:text-white hover:bg-black/5 dark:hover:bg-white/10 font-bold'
                             }`}
                         >
-                          {m.name}
-                          {selectedMachineId?.toString() === m.id.toString() && <Check size={16} className="text-white" />}
+                          <span className="hidden md:inline truncate">{m.name}</span>
+                          <span className="inline md:hidden truncate">{m.tag || m.name}</span>
+                          {selectedMachineId?.toString() === m.id.toString() && <Check size={16} className="text-white shrink-0" />}
                         </button>
                       ))}
                     </div>
@@ -610,7 +616,9 @@ export default function DashboardView(props: DashboardViewProps) {
                       <div className="flex items-center gap-2">
                         <span className="font-mono font-bold text-sm text-ios-red">{item.stops} paradas</span>
                         {item.stops > 4 && (
-                          <AlertTriangle className="text-ios-orange" size={14} title="Alto índice de interrupções" />
+                          <span title="Alto índice de interrupções">
+                            <AlertTriangle className="text-ios-orange" size={14} />
+                          </span>
                         )}
                       </div>
                     </div>

@@ -23,6 +23,7 @@ interface MachineTelemetry {
   liveValueData: number[];
   historyData: { time: string, status: number }[];
   stopsCount: number;
+  isNgrok?: boolean;
 }
 
 export default function App() {
@@ -55,7 +56,7 @@ export default function App() {
   const [vibrationHz, setVibrationHz] = useState(0);
   const [vibrationStructural, setVibrationStructural] = useState(0);
 
-  const [availableMachines, setAvailableMachines] = useState<{id: number | string, name: string}[]>([]);
+  const [availableMachines, setAvailableMachines] = useState<{id: number | string, name: string, tag?: string}[]>([]);
   const [selectedMachineId, setSelectedMachineIdState] = useState<number | string | null>(null);
   const selectedMachineIdRef = useRef<number | string | null>(null);
 
@@ -122,7 +123,7 @@ export default function App() {
     ].join(':');
   };
 
-  const initTelemetryForMachine = (id: number | string): MachineTelemetry => {
+  const initTelemetryForMachine = (_id: number | string): MachineTelemetry => {
     const isAtiva = Math.random() > 0.2; // 80% chance de iniciar ligada
     const uptimeSecs = Math.floor(15000 + Math.random() * 30000);
     const downtimeSecs = Math.floor(2000 + Math.random() * 8000);
@@ -245,7 +246,14 @@ export default function App() {
           // Caso contrário, simulamos os dados se movimentando
           let updatedTel = { ...currentTel };
           
-          if (currentTel.status) {
+          if (currentTel.isNgrok) {
+            // Se for do ngrok, apenas incrementa tempos e mantém os dados reais do GET
+            if (currentTel.status) {
+              updatedTel.uptimeSeconds += 1;
+            } else {
+              updatedTel.downtimeSeconds += 1;
+            }
+          } else if (currentTel.status) {
             // Incrementa produção
             updatedTel.uptimeSeconds += 1;
             // Flutua valores
@@ -348,7 +356,8 @@ export default function App() {
           if (machinesLocal && machinesLocal.length > 0) {
             setAvailableMachines(machinesLocal.map((m: any) => ({
               id: m.id,
-              name: m.name
+              name: m.name,
+              tag: m.tag || m.name
             })));
             
             localStorage.setItem('local_machines', JSON.stringify(machinesLocal));
@@ -363,15 +372,19 @@ export default function App() {
         console.warn("Backend local offline para carregar máquinas. Carregando dados locais...");
         const stored = localStorage.getItem('local_machines');
         if (stored) {
-          const parsed = JSON.parse(stored);
-          setAvailableMachines(parsed);
+           const parsed = JSON.parse(stored);
+          setAvailableMachines(parsed.map((m: any) => ({
+            id: m.id,
+            name: m.name,
+            tag: m.tag || m.name
+          })));
           if (selectedMachineIdRef.current === null && parsed.length > 0) {
             setSelectedMachineIdState(parsed[0].id);
             selectedMachineIdRef.current = parsed[0].id;
           }
         } else {
           // Mock padrão
-          const defaultMachines = [{ id: '1', name: 'Máquina de Corte 01' }];
+          const defaultMachines = [{ id: '1', name: 'Máquina de Corte 01', tag: 'MC-01' }];
           setAvailableMachines(defaultMachines);
           setSelectedMachineIdState('1');
           selectedMachineIdRef.current = '1';
@@ -390,16 +403,101 @@ export default function App() {
         if (ngrokResponse.ok) {
           const ngrokData = await ngrokResponse.json();
           if (ngrokData && ngrokData.length > 0) {
+            setLastDataTimestamp(Date.now());
+            setIsServerSignal(true);
+            // 1. Atualizar a lista de máquinas com os nomes reais vindos do ngrok
             setAvailableMachines(prev => {
               const newList = [...prev];
               ngrokData.forEach((m: any) => {
                 const id = m.maquina_id;
-                if (!newList.some(x => x.id.toString() === id.toString())) {
-                  newList.push({ id, name: `Máquina ${id}` });
+                const name = m.nome_maquina 
+                  ? `${m.tag_maquina ? m.tag_maquina + ' - ' : ''}${m.nome_maquina}`
+                  : (m.tag_maquina || `Máquina ${id}`);
+                const tag = m.tag_maquina || `M${id}`;
+                
+                const existingIndex = newList.findIndex(x => x.id.toString() === id.toString());
+                if (existingIndex === -1) {
+                  newList.push({ id, name, tag });
+                } else {
+                  newList[existingIndex] = { id, name, tag };
                 }
               });
               return newList;
             });
+
+            // 2. Atualizar a telemetria com os dados do ngrok
+            setTelemetryMap(prev => {
+              const nextMap = { ...prev };
+
+              ngrokData.forEach((m: any) => {
+                const id = m.maquina_id;
+                const isAtiva = m.status_atual?.toLowerCase() === 'ativa';
+
+                if (!nextMap[id]) {
+                  const initTelemetry = initTelemetryForMachine(id);
+                  nextMap[id] = {
+                    ...initTelemetry,
+                    status: isAtiva,
+                    power: m.potencia_watt ?? initTelemetry.power,
+                    voltage: m.tensao_volt ?? initTelemetry.voltage,
+                    current: m.corrente_ampere ?? initTelemetry.current,
+                    vibrationHz: m.frequencia_hz ?? initTelemetry.vibrationHz,
+                    vibrationStructural: m.vibracao_rms ?? initTelemetry.vibrationStructural,
+                    isNgrok: true,
+                  };
+                } else {
+                  const currentTel = nextMap[id];
+                  const nextVibrationData = [...currentTel.vibrationData.slice(-19), m.vibracao_rms ?? 0];
+                  const nextLiveValueData = [...currentTel.liveValueData.slice(-29), m.frequencia_hz ?? 0];
+                  
+                  let nextHistoryData = currentTel.historyData;
+                  const timeNow = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                  if (currentTel.historyData.length === 0 || currentTel.status !== isAtiva) {
+                    nextHistoryData = [...currentTel.historyData.slice(-19), { time: timeNow, status: isAtiva ? 1 : 0 }];
+                  }
+
+                  nextMap[id] = {
+                    ...currentTel,
+                    status: isAtiva,
+                    power: m.potencia_watt ?? currentTel.power,
+                    voltage: m.tensao_volt ?? currentTel.voltage,
+                    current: m.corrente_ampere ?? currentTel.current,
+                    vibrationHz: m.frequencia_hz ?? currentTel.vibrationHz,
+                    vibrationStructural: m.vibracao_rms ?? currentTel.vibrationStructural,
+                    vibrationData: nextVibrationData,
+                    liveValueData: nextLiveValueData,
+                    historyData: nextHistoryData,
+                    isNgrok: true,
+                  };
+                }
+              });
+
+              // Sincronizar o estado ativo com a máquina selecionada atual
+              const activeId = selectedMachineIdRef.current;
+              if (activeId !== null && nextMap[activeId]) {
+                const tel = nextMap[activeId];
+                setStatusState(tel.status);
+                setUptime(formatTime(tel.uptimeSeconds));
+                setDowntime(formatTime(tel.downtimeSeconds));
+                setPower(tel.power);
+                setVoltage(tel.voltage);
+                setCurrent(tel.current);
+                setVibrationHz(tel.vibrationHz);
+                setVibrationStructural(tel.vibrationStructural);
+                setVibrationData(tel.vibrationData);
+                setLiveValueData(tel.liveValueData);
+                setHistoryData(tel.historyData);
+              }
+
+              return nextMap;
+            });
+
+            // Se nenhuma máquina estiver selecionada ainda, seleciona a primeira
+            if (selectedMachineIdRef.current === null) {
+              const firstId = ngrokData[0].maquina_id;
+              setSelectedMachineIdState(firstId);
+              selectedMachineIdRef.current = firstId;
+            }
           }
         }
       } catch (e) {

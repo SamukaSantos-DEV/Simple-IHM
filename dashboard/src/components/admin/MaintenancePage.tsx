@@ -137,7 +137,6 @@ export default function MaintenancePage() {
       const isLocalOnly = !window.navigator.onLine; // Ou se falhar
 
       let success = false;
-      let newOrUpdatedTask: MaintenanceTask | null = null;
 
       if (!isLocalOnly) {
         try {
@@ -148,7 +147,6 @@ export default function MaintenancePage() {
               body: JSON.stringify(payload),
             });
             if (response.ok) {
-              newOrUpdatedTask = await response.json();
               success = true;
             }
           } else {
@@ -158,7 +156,6 @@ export default function MaintenancePage() {
               body: JSON.stringify(payload),
             });
             if (response.ok) {
-              newOrUpdatedTask = await response.json();
               success = true;
             }
           }
