@@ -81,15 +81,17 @@ export default function DashboardView(props: DashboardViewProps) {
       formatter: '{b}: {c}s ({d}%)'
     },
     legend: {
-      orient: 'vertical',
-      left: 'left',
-      textStyle: { color: darkMode ? '#fff' : '#000', fontSize: 11 }
+      orient: 'horizontal',
+      bottom: '0%',
+      left: 'center',
+      textStyle: { color: darkMode ? '#fff' : '#000', fontSize: 10 }
     },
     series: [
       {
         name: 'Produtividade por Turno',
         type: 'pie',
-        radius: ['50%', '80%'],
+        radius: ['45%', '70%'],
+        center: ['50%', '40%'],
         avoidLabelOverlap: false,
         itemStyle: {
           borderRadius: 8,
@@ -395,10 +397,11 @@ export default function DashboardView(props: DashboardViewProps) {
 
                    <div className="seamless-panel rounded-ios p-6 w-full overflow-hidden flex flex-col">
                     <div className="flex justify-between items-center mb-4">
-                      <h3 className="text-xs font-bold uppercase tracking-[0.2em] opacity-40">Logs de Leitura (API)</h3>
-                      <span className="text-[9px] uppercase font-bold text-ios-blue animate-pulse">Live</span>
+                      <h3 className="text-xs font-bold uppercase tracking-[0.2em] opacity-40">Logs de Leitura</h3>
+                      <span className="text-[15px] uppercase font-bold text-red-500 animate-pulse">◉
+                      </span>
                     </div>
-                    <div className="max-h-[220px] overflow-y-auto pr-1">
+                    <div className="max-h-[220px] overflow-y-auto pr-1 scrollbar-clean">
                       <table className="w-full text-left text-[10px]">
                         <thead>
                           <tr className="opacity-30 border-b border-black/5 dark:border-white/5">
@@ -770,7 +773,7 @@ export default function DashboardView(props: DashboardViewProps) {
       {/* Footer */}
       <footer className="mt-12 text-center text-xs opacity-35 max-w-7xl mx-auto w-full">
         <p>Simple IHM Dashboard &copy; 2026 - Conexão via Bridge Local</p>
-        <button onClick={() => navigate('/admin')} className="underline hover:opacity-100 transition-opacity cursor-pointer">Acesso Administrativo (Técnico)</button>
+        <button onClick={() => navigate('/admin')} className="underline hover:opacity-100 transition-opacity cursor-pointer mb-16">Acesso Administrativo (Técnico)</button>
       </footer>
     </div>
   );

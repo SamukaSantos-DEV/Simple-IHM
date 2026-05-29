@@ -8,14 +8,84 @@ const BRAND_GRADIENT = 'linear-gradient(135deg, #812FFF 0%, #5CE1E6 100%)';
 export default function LoginPage() {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    // Qualquer login é aceito para a simulação de mockup
-    if (username && password) {
-      localStorage.setItem('admin_auth_token', 'mock_token_123');
-      navigate('/admin/machines');
+    setError('');
+    setLoading(true);
+    try {
+      const response = await fetch('https://caucasian-septum-syndrome.ngrok-free.dev/funcionarios', {
+        headers: {
+          'Content-Type': 'application/json',
+          'ngrok-skip-browser-warning': 'true'
+        }
+      });
+      if (response.ok) {
+        const list = await response.json();
+        const user = list.find((f: any) => f.email?.toLowerCase().trim() === username.toLowerCase().trim());
+        if (user) {
+          if (user.ativo === false) {
+            setError('Funcionário inativo no sistema.');
+            setLoading(false);
+            return;
+          }
+          // Login bem-sucedido
+          localStorage.setItem('admin_auth_token', `token_${user.id}`);
+          localStorage.setItem('admin_user_name', user.nome);
+          localStorage.setItem('admin_user_email', user.email);
+          navigate('/admin/machines');
+        } else {
+          setError('Funcionário não cadastrado com este e-mail.');
+        }
+      } else {
+        // Fallback local caso a API não responda ok
+        const local = localStorage.getItem('local_funcionarios');
+        if (local) {
+          const list = JSON.parse(local);
+          const user = list.find((f: any) => f.email?.toLowerCase().trim() === username.toLowerCase().trim());
+          if (user) {
+            if (user.ativo === false) {
+              setError('Funcionário inativo no sistema.');
+              setLoading(false);
+              return;
+            }
+            localStorage.setItem('admin_auth_token', `token_${user.id}`);
+            localStorage.setItem('admin_user_name', user.nome);
+            localStorage.setItem('admin_user_email', user.email);
+            navigate('/admin/machines');
+            setLoading(false);
+            return;
+          }
+        }
+        setError('Erro ao validar login com a API.');
+      }
+    } catch (err) {
+      console.error(err);
+      // Fallback local se estiver totalmente offline
+      const local = localStorage.getItem('local_funcionarios');
+      if (local) {
+        const list = JSON.parse(local);
+        const user = list.find((f: any) => f.email?.toLowerCase().trim() === username.toLowerCase().trim());
+        if (user) {
+          if (user.ativo === false) {
+            setError('Funcionário inativo no sistema.');
+            setLoading(false);
+            return;
+          }
+          localStorage.setItem('admin_auth_token', `token_${user.id}`);
+          localStorage.setItem('admin_user_name', user.nome);
+          localStorage.setItem('admin_user_email', user.email);
+          navigate('/admin/machines');
+          setLoading(false);
+          return;
+        }
+      }
+      setError('Erro ao conectar ao servidor de autenticação.');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -32,36 +102,45 @@ export default function LoginPage() {
           <p className="text-xs opacity-50 mt-1 uppercase tracking-widest">Restricted Access</p>
         </div>
 
+        {error && (
+          <div className="mb-6 p-4 text-xs font-semibold bg-red-500/10 border border-red-500/20 text-red-500 rounded-2xl text-center">
+            {error}
+          </div>
+        )}
+
         <form onSubmit={handleLogin} className="flex flex-col gap-4">
           <div className="relative">
             <User size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-ios-blue" />
             <input
               type="text"
-              placeholder="Username"
+              placeholder="E-mail do Funcionário"
               required
+              disabled={loading}
               value={username}
               onChange={e => setUsername(e.target.value)}
-              className="w-full bg-black/80 border border-white/10 rounded-xl pl-12 pr-4 py-3 outline-none focus:border-ios-blue transition-colors"
+              className="w-full bg-black/80 border border-white/10 rounded-xl pl-12 pr-4 py-3 outline-none focus:border-ios-blue transition-colors disabled:opacity-50"
             />
           </div>
           <div className="relative">
             <Lock size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-ios-blue" />
             <input
               type="password"
-              placeholder="Password"
+              placeholder="Senha"
               required
+              disabled={loading}
               value={password}
               onChange={e => setPassword(e.target.value)}
-              className="w-full bg-black/20 border border-white/10 rounded-xl pl-12 pr-4 py-3 outline-none focus:border-ios-blue transition-colors"
+              className="w-full bg-black/20 border border-white/10 rounded-xl pl-12 pr-4 py-3 outline-none focus:border-ios-blue transition-colors disabled:opacity-50"
             />
           </div>
 
           <button
             type="submit"
-            className="mt-4 w-full cursor-pointer py-3 rounded-xl font-bold bg-white text-black hover:opacity-90 transition-opacity"
+            disabled={loading}
+            className="mt-4 w-full cursor-pointer py-3 rounded-xl font-bold bg-white text-black hover:opacity-90 transition-opacity disabled:opacity-50"
             style={{ backgroundImage: BRAND_GRADIENT, color: 'white', textShadow: '0 1px 2px rgba(0,0,0,0.5)' }}
           >
-            Acessar Sistema
+            {loading ? 'Verificando...' : 'Acessar Sistema'}
           </button>
         </form>
 

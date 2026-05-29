@@ -401,25 +401,26 @@ export default function App() {
       }
 
       // Tenta puxar do ngrok também se disponível e junta os dados
-      try {
-        const ngrokResponse = await fetch('https://caucasian-septum-syndrome.ngrok-free.dev/status-maquinas', {
-          method: 'GET',
-          headers: {
-            'Content-Type': 'application/json',
-            'ngrok-skip-browser-warning': 'true' 
-          }
-        });
-        if (ngrokResponse.ok) {
-          const ngrokData = await ngrokResponse.json();
-          if (ngrokData && ngrokData.length > 0) {
-            setLastDataTimestamp(Date.now());
-            setIsServerSignal(true);
-            // 1. Atualizar a lista de máquinas com os nomes reais vindos do ngrok
-            setAvailableMachines(prev => {
-              const newList = [...prev];
-              ngrokData.forEach((m: any) => {
+      const activeId = selectedMachineIdRef.current;
+      if (activeId !== null) {
+        try {
+          const ngrokResponse = await fetch(`https://caucasian-septum-syndrome.ngrok-free.dev/status-maquinas/${activeId}`, {
+            method: 'GET',
+            headers: {
+              'Content-Type': 'application/json',
+              'ngrok-skip-browser-warning': 'true' 
+            }
+          });
+          if (ngrokResponse.ok) {
+            const m = await ngrokResponse.json();
+            if (m && m.maquina_id !== undefined) {
+              setLastDataTimestamp(Date.now());
+              setIsServerSignal(true);
+              
+              // 1. Atualizar a lista de máquinas se necessário com o nome/tag retornado
+              setAvailableMachines(prev => {
+                const newList = [...prev];
                 const id = m.maquina_id;
-                
                 const existingIndex = newList.findIndex(x => x.id.toString() === id.toString());
                 if (existingIndex === -1) {
                   const name = m.nome_maquina 
@@ -428,20 +429,16 @@ export default function App() {
                   const tag = m.tag_maquina || `M${id}`;
                   newList.push({ id, name, tag });
                 }
+                return newList;
               });
-              return newList;
-            });
 
-            // 1.5. Atualizar o histórico de logs de telemetria
-            setTelemetryLogs(prev => {
-              const newEntries: any[] = [];
-              ngrokData.forEach((m: any) => {
-                const maquinaRel = availableMachines.find(x => x.id.toString() === m.maquina_id.toString());
-                const name = maquinaRel ? maquinaRel.name : (m.nome_maquina || `Máquina ${m.maquina_id}`);
-                
+              // 1.5. Atualizar o histórico de logs de telemetria
+              setTelemetryLogs(prev => {
                 const exists = prev.some(log => log.maquina_id === m.maquina_id && log.momento_da_leitura === m.momento_da_leitura);
                 if (!exists) {
-                  newEntries.push({
+                  const maquinaRel = availableMachines.find(x => x.id.toString() === m.maquina_id.toString());
+                  const name = maquinaRel ? maquinaRel.name : (m.nome_maquina || `Máquina ${m.maquina_id}`);
+                  const newLog = {
                     maquina_id: m.maquina_id,
                     name,
                     status_atual: m.status_atual || 'Inativa',
@@ -451,22 +448,16 @@ export default function App() {
                     potencia_watt: m.potencia_watt || 0,
                     frequencia_hz: m.frequencia_hz || 0,
                     momento_da_leitura: m.momento_da_leitura
-                  });
+                  };
+                  const combined = [newLog, ...prev];
+                  return combined.slice(0, 25);
                 }
+                return prev;
               });
-              
-              if (newEntries.length === 0) return prev;
-              
-              const combined = [...newEntries, ...prev];
-              combined.sort((a, b) => new Date(b.momento_da_leitura).getTime() - new Date(a.momento_da_leitura).getTime());
-              return combined.slice(0, 25);
-            });
 
-            // 2. Atualizar a telemetria com os dados do ngrok
-            setTelemetryMap(prev => {
-              const nextMap = { ...prev };
-
-              ngrokData.forEach((m: any) => {
+              // 2. Atualizar a telemetria com os dados do ngrok para essa máquina específica
+              setTelemetryMap(prev => {
+                const nextMap = { ...prev };
                 const id = m.maquina_id;
                 const isAtiva = m.status_atual?.toLowerCase() === 'ativa';
 
@@ -507,38 +498,30 @@ export default function App() {
                     isNgrok: true,
                   };
                 }
+
+                // Sincronizar o estado ativo com a máquina selecionada atual
+                if (nextMap[id]) {
+                  const tel = nextMap[id];
+                  setStatusState(tel.status);
+                  setUptime(formatTime(tel.uptimeSeconds));
+                  setDowntime(formatTime(tel.downtimeSeconds));
+                  setPower(tel.power);
+                  setVoltage(tel.voltage);
+                  setCurrent(tel.current);
+                  setVibrationHz(tel.vibrationHz);
+                  setVibrationStructural(tel.vibrationStructural);
+                  setVibrationData(tel.vibrationData);
+                  setLiveValueData(tel.liveValueData);
+                  setHistoryData(tel.historyData);
+                }
+
+                return nextMap;
               });
-
-              // Sincronizar o estado ativo com a máquina selecionada atual
-              const activeId = selectedMachineIdRef.current;
-              if (activeId !== null && nextMap[activeId]) {
-                const tel = nextMap[activeId];
-                setStatusState(tel.status);
-                setUptime(formatTime(tel.uptimeSeconds));
-                setDowntime(formatTime(tel.downtimeSeconds));
-                setPower(tel.power);
-                setVoltage(tel.voltage);
-                setCurrent(tel.current);
-                setVibrationHz(tel.vibrationHz);
-                setVibrationStructural(tel.vibrationStructural);
-                setVibrationData(tel.vibrationData);
-                setLiveValueData(tel.liveValueData);
-                setHistoryData(tel.historyData);
-              }
-
-              return nextMap;
-            });
-
-            // Se nenhuma máquina estiver selecionada ainda, seleciona a primeira
-            if (selectedMachineIdRef.current === null) {
-              const firstId = ngrokData[0].maquina_id;
-              setSelectedMachineIdState(firstId);
-              selectedMachineIdRef.current = firstId;
             }
           }
+        } catch (e) {
+          console.warn("ngrok offline ou indisponível.");
         }
-      } catch (e) {
-        console.warn("ngrok offline ou indisponível.");
       }
 
       // 2. Carregar manutenções preventivas

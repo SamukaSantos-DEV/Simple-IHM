@@ -201,3 +201,31 @@
   .power-toggle.active .label-off { opacity: 0.1; }
   .power-toggle.inactive .label-on { opacity: 0.1; }
 }
+
+/* CUSTOM CLEAN SCROLLBAR */
+.scrollbar-clean::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+.scrollbar-clean::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.scrollbar-clean::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.12);
+  border-radius: 10px;
+}
+
+[data-theme="dark"] .scrollbar-clean::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.scrollbar-clean::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.25);
+}
+
+[data-theme="dark"] .scrollbar-clean::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.25);
+}
+
