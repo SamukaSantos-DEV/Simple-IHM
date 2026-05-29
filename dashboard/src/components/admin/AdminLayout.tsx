@@ -3,7 +3,7 @@ import { LogOut, Wrench, Settings, Users } from 'lucide-react';
 import logo from '../../assets/hero.png';
 
 export default function AdminLayout() {
-  const token = localStorage.getItem('admin_auth_token');
+  const token = sessionStorage.getItem('admin_auth_token');
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -13,14 +13,19 @@ export default function AdminLayout() {
   }
 
   const handleLogout = () => {
-    localStorage.removeItem('admin_auth_token');
+    sessionStorage.removeItem('admin_auth_token');
     navigate('/admin/login');
+  };
+
+  const handleGoToDashboard = () => {
+    sessionStorage.removeItem('admin_auth_token');
+    navigate('/');
   };
 
   return (
     <div className="min-h-screen flex flex-col transition-colors duration-700 bg-slate-50 text-slate-900 dark:bg-black dark:text-white">
       <header className="flex flex-col md:flex-row justify-between items-center px-6 py-4 border-b border-black/10 dark:border-white/10 gap-4 bg-white/20 dark:bg-black/20 backdrop-blur-md">
-        <div className="flex items-center gap-4 cursor-pointer" onClick={() => navigate('/')}>
+        <div className="flex items-center gap-4 cursor-pointer" onClick={handleGoToDashboard}>
           <img src={logo} alt="Logo" className="w-8 h-8 object-contain" />
           <h1 className="font-bold tracking-tight">Admin <span className="opacity-50">Panel</span></h1>
         </div>

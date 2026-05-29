@@ -17,50 +17,54 @@ export default function LoginPage() {
     setError('');
     setLoading(true);
     try {
-      const response = await fetch('https://caucasian-septum-syndrome.ngrok-free.dev/funcionarios', {
+      const response = await fetch('https://caucasian-septum-syndrome.ngrok-free.dev/login', {
+        method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'ngrok-skip-browser-warning': 'true'
-        }
+        },
+        body: JSON.stringify({
+          email: username.trim(),
+          senha: password
+        })
       });
+
       if (response.ok) {
-        const list = await response.json();
-        const user = list.find((f: any) => f.email?.toLowerCase().trim() === username.toLowerCase().trim());
-        if (user) {
-          if (user.ativo === false) {
-            setError('Funcionário inativo no sistema.');
-            setLoading(false);
-            return;
-          }
+        const result = await response.json();
+        if (result && result.status === 'Sucesso') {
           // Login bem-sucedido
-          localStorage.setItem('admin_auth_token', `token_${user.id}`);
-          localStorage.setItem('admin_user_name', user.nome);
-          localStorage.setItem('admin_user_email', user.email);
+          sessionStorage.setItem('admin_auth_token', `token_${result.usuario_id}`);
+          sessionStorage.setItem('admin_user_name', result.nome);
+          sessionStorage.setItem('admin_user_email', username.trim());
           navigate('/admin/machines');
         } else {
-          setError('Funcionário não cadastrado com este e-mail.');
+          setError(result?.mensagem || 'Falha ao autenticar. E-mail ou senha incorretos.');
         }
       } else {
-        // Fallback local caso a API não responda ok
-        const local = localStorage.getItem('local_funcionarios');
-        if (local) {
-          const list = JSON.parse(local);
-          const user = list.find((f: any) => f.email?.toLowerCase().trim() === username.toLowerCase().trim());
-          if (user) {
-            if (user.ativo === false) {
-              setError('Funcionário inativo no sistema.');
+        if (response.status === 401 || response.status === 400 || response.status === 404) {
+          setError('E-mail ou senha incorretos.');
+        } else {
+          // Fallback local caso a API não responda ok
+          const local = localStorage.getItem('local_funcionarios');
+          if (local) {
+            const list = JSON.parse(local);
+            const user = list.find((f: any) => f.email?.toLowerCase().trim() === username.toLowerCase().trim());
+            if (user) {
+              if (user.ativo === false) {
+                setError('Funcionário inativo no sistema.');
+                setLoading(false);
+                return;
+              }
+              sessionStorage.setItem('admin_auth_token', `token_${user.id}`);
+              sessionStorage.setItem('admin_user_name', user.nome);
+              sessionStorage.setItem('admin_user_email', user.email);
+              navigate('/admin/machines');
               setLoading(false);
               return;
             }
-            localStorage.setItem('admin_auth_token', `token_${user.id}`);
-            localStorage.setItem('admin_user_name', user.nome);
-            localStorage.setItem('admin_user_email', user.email);
-            navigate('/admin/machines');
-            setLoading(false);
-            return;
           }
+          setError('Erro ao validar login com a API.');
         }
-        setError('Erro ao validar login com a API.');
       }
     } catch (err) {
       console.error(err);
@@ -75,9 +79,9 @@ export default function LoginPage() {
             setLoading(false);
             return;
           }
-          localStorage.setItem('admin_auth_token', `token_${user.id}`);
-          localStorage.setItem('admin_user_name', user.nome);
-          localStorage.setItem('admin_user_email', user.email);
+          sessionStorage.setItem('admin_auth_token', `token_${user.id}`);
+          sessionStorage.setItem('admin_user_name', user.nome);
+          sessionStorage.setItem('admin_user_email', user.email);
           navigate('/admin/machines');
           setLoading(false);
           return;
